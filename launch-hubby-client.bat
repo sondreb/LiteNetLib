@@ -1,0 +1,1 @@
+START HubbyClient\bin\Debug\netcoreapp3.1\HubbyClient.exe

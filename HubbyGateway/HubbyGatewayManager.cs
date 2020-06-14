@@ -7,16 +7,30 @@ using System.Threading;
 
 namespace HubbyGateway
 {
+    public class HubInfo
+    {
+        public string Name
+        {
+            get; set;
+        }
+    }
+
     public class HubbyGatewayManager : INatPunchListener
     {
         private const int ServerPort = 15050;
         private const string ConnectionKey = "12345";
-        private readonly Dictionary<string, WaitPeer> waitingPeers = new Dictionary<string, WaitPeer>();
+        private readonly Dictionary<string, WaitPeer> connectedHubs = new Dictionary<string, WaitPeer>();
         private NetManager server;
 
         public void OnNatIntroductionRequest(IPEndPoint localEndPoint, IPEndPoint remoteEndPoint, string token)
         {
-            if (waitingPeers.TryGetValue(token, out var wpeer))
+            var hubInfo = new HubInfo();
+            hubInfo.Name = "Hub";
+
+            var data = Encoding.UTF8.GetBytes("HUBINFO");
+            this.server.SendToAll(data, DeliveryMethod.ReliableUnordered);
+
+            if (connectedHubs.TryGetValue(token, out var wpeer))
             {
                 if (wpeer.InternalAddr.Equals(localEndPoint) &&
                     wpeer.ExternalAddr.Equals(remoteEndPoint))
@@ -25,11 +39,10 @@ namespace HubbyGateway
                     return;
                 }
 
-                Console.WriteLine("Wait peer found, sending introduction...");
+                Console.WriteLine("GATEWAY: Wait peer found, sending introduction...");
 
                 //found in list - introduce client and host to eachother
-                Console.WriteLine(
-                    "host - i({0}) e({1})\nclient - i({2}) e({3})",
+                Console.WriteLine("GATEWAY: host - i({0}) e({1}) | client - i({2}) e({3})",
                     wpeer.InternalAddr,
                     wpeer.ExternalAddr,
                     localEndPoint,
@@ -44,12 +57,12 @@ namespace HubbyGateway
                     );
 
                 //Clear dictionary
-                waitingPeers.Remove(token);
+                connectedHubs.Remove(token);
             }
             else
             {
-                Console.WriteLine("Wait peer created. i({0}) e({1})", localEndPoint, remoteEndPoint);
-                waitingPeers[token] = new WaitPeer(localEndPoint, remoteEndPoint);
+                Console.WriteLine("GATEWAY: Wait peer created. i({0}) e({1})", localEndPoint, remoteEndPoint);
+                connectedHubs[token] = new WaitPeer(localEndPoint, remoteEndPoint);
             }
         }
 
@@ -60,29 +73,53 @@ namespace HubbyGateway
 
         public void Run()
         {
-            EventBasedNetListener clientListener = new EventBasedNetListener();
+            EventBasedNetListener listener = new EventBasedNetListener();
 
-            clientListener.PeerConnectedEvent += peer =>
+            listener.PeerConnectedEvent += peer =>
             {
-                Console.WriteLine("PeerConnected: " + peer.EndPoint);
+                Console.WriteLine("GATEWAY: PeerConnected: " + peer.EndPoint);
             };
 
-            clientListener.ConnectionRequestEvent += request =>
+            listener.ConnectionRequestEvent += request =>
             {
-                Console.WriteLine("ConnectionRequestEvent: " + ConnectionKey);
+                Console.WriteLine("GATEWAY: ConnectionRequestEvent: " + ConnectionKey);
                 request.AcceptIfKey(ConnectionKey);
             };
 
-            clientListener.PeerDisconnectedEvent += (peer, disconnectInfo) =>
+            listener.PeerDisconnectedEvent += (peer, disconnectInfo) =>
             {
-                Console.WriteLine("PeerDisconnected: " + disconnectInfo.Reason);
+                Console.WriteLine("GATEWAY: PeerDisconnected: " + disconnectInfo.Reason);
                 if (disconnectInfo.AdditionalData.AvailableBytes > 0)
                 {
-                    Console.WriteLine("Disconnect data: " + disconnectInfo.AdditionalData.GetInt());
+                    Console.WriteLine("GATEWAY: Disconnect data: " + disconnectInfo.AdditionalData.GetInt());
                 }
             };
 
-            server = new NetManager(clientListener)
+            listener.NetworkReceiveEvent += (NetPeer peer, NetPacketReader reader, DeliveryMethod deliveryMethod) => {
+                Console.WriteLine("GATEWAY: NetworkReceiveEvent");
+            };
+
+            listener.NetworkErrorEvent += (IPEndPoint endPoint, System.Net.Sockets.SocketError socketError) => {
+                Console.WriteLine("GATEWAY: NetworkErrorEvent");
+            };
+
+            listener.NetworkReceiveUnconnectedEvent += (IPEndPoint remoteEndPoint, NetPacketReader reader, UnconnectedMessageType messageType) => {
+                Console.WriteLine("GATEWAY: NetworkReceiveUnconnectedEvent");
+            };
+
+            listener.NetworkErrorEvent += (IPEndPoint endPoint, System.Net.Sockets.SocketError socketError) => {
+                Console.WriteLine("GATEWAY: NetworkErrorEvent");
+            };
+
+            listener.NetworkLatencyUpdateEvent += (NetPeer peer, int latency) => {
+                Console.WriteLine("GATEWAY: NetworkLatencyUpdateEvent: Latency: " + latency);
+            };
+
+            listener.DeliveryEvent += (NetPeer peer, object userData) => {
+                Console.WriteLine("GATEWAY: DeliveryEvent");
+            };
+
+            server = new NetManager(listener)
             {
                 IPv6Enabled = false,
                 NatPunchEnabled = true
@@ -90,13 +127,26 @@ namespace HubbyGateway
 
             server.Start(ServerPort);
             server.NatPunchModule.Init(this);
+            //server.EnableStatistics = true;
 
             while (true)
             {
                 DateTime nowTime = DateTime.UtcNow;
 
                 server.NatPunchModule.PollEvents();
-            
+                server.PollEvents();
+
+                foreach (var hub in connectedHubs)
+                {
+                    Console.WriteLine("Hub: " + hub.Value.InternalAddr.ToString());
+                }
+
+                //var data = Encoding.UTF8.GetBytes("HUBINFO");
+                //server.ConnectedPeerList[0].Send(data, DeliveryMethod.ReliableUnordered);
+
+                //server.SendToAll()
+                //Console.WriteLine(server.Statistics);
+
                 Thread.Sleep(10);
             }
 
