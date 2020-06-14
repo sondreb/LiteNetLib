@@ -1,4 +1,5 @@
 ﻿using LiteNetLib;
+using LiteNetLib.Utils;
 using System;
 using System.Collections.Generic;
 using System.Net;
@@ -27,8 +28,11 @@ namespace HubbyGateway
             var hubInfo = new HubInfo();
             hubInfo.Name = "Hub";
 
-            var data = Encoding.UTF8.GetBytes("HUBINFO");
-            this.server.SendToAll(data, DeliveryMethod.ReliableUnordered);
+            NetDataWriter writer = new NetDataWriter();
+            writer.Put("Hello from gateway on nat introduction!");
+
+            //var data = Encoding.UTF8.GetBytes("HUBINFO");
+            this.server.SendToAll(writer, DeliveryMethod.ReliableUnordered);
 
             if (connectedHubs.TryGetValue(token, out var wpeer))
             {
@@ -78,11 +82,18 @@ namespace HubbyGateway
             listener.PeerConnectedEvent += peer =>
             {
                 Console.WriteLine("GATEWAY: PeerConnected: " + peer.EndPoint);
+
+                NetDataWriter writer = new NetDataWriter();
+                writer.Put("Hello client from gateway!");
+                peer.Send(writer, DeliveryMethod.ReliableOrdered);
+
+                //var data = Encoding.UTF8.GetBytes("HUBINFO");
+                //peer.Send(data, DeliveryMethod.ReliableUnordered);
             };
 
             listener.ConnectionRequestEvent += request =>
             {
-                Console.WriteLine("GATEWAY: ConnectionRequestEvent: " + ConnectionKey);
+                Console.WriteLine($"GATEWAY: ConnectionRequestEvent: RemoteEndPoint: {request.RemoteEndPoint} ConnectionKey: {ConnectionKey}");
                 request.AcceptIfKey(ConnectionKey);
             };
 
@@ -112,7 +123,7 @@ namespace HubbyGateway
             };
 
             listener.NetworkLatencyUpdateEvent += (NetPeer peer, int latency) => {
-                Console.WriteLine("GATEWAY: NetworkLatencyUpdateEvent: Latency: " + latency);
+                //Console.WriteLine("GATEWAY: NetworkLatencyUpdateEvent: Latency: " + latency);
             };
 
             listener.DeliveryEvent += (NetPeer peer, object userData) => {
@@ -133,13 +144,20 @@ namespace HubbyGateway
             {
                 DateTime nowTime = DateTime.UtcNow;
 
-                server.NatPunchModule.PollEvents();
                 server.PollEvents();
+                server.NatPunchModule.PollEvents();
 
-                foreach (var hub in connectedHubs)
+                foreach (var client in server.ConnectedPeerList)
                 {
-                    Console.WriteLine("Hub: " + hub.Value.InternalAddr.ToString());
+                    NetDataWriter writer = new NetDataWriter();
+                    writer.Put("From gateway: " + DateTime.UtcNow.ToString());
+                    client.Send(writer, DeliveryMethod.ReliableUnordered);
                 }
+
+                //foreach (var hub in connectedHubs)
+                //{
+                //    Console.WriteLine("Hub: " + hub.Value.InternalAddr.ToString());
+                //}
 
                 //var data = Encoding.UTF8.GetBytes("HUBINFO");
                 //server.ConnectedPeerList[0].Send(data, DeliveryMethod.ReliableUnordered);
@@ -147,7 +165,7 @@ namespace HubbyGateway
                 //server.SendToAll()
                 //Console.WriteLine(server.Statistics);
 
-                Thread.Sleep(10);
+                Thread.Sleep(100);
             }
 
             server.Stop();

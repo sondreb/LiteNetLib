@@ -38,7 +38,9 @@ namespace HubbyClient
             };
 
             listener.NetworkReceiveEvent += (NetPeer peer, NetPacketReader reader, DeliveryMethod deliveryMethod) => {
-                Console.WriteLine("CLIENT: NetworkReceiveEvent");
+                var text = reader.GetString();
+                Console.WriteLine("CLIENT: NetworkReceiveEvent: " + text);
+                reader.Recycle();
             };
 
             listener.NetworkErrorEvent += (IPEndPoint endPoint, System.Net.Sockets.SocketError socketError) => {
@@ -77,22 +79,25 @@ namespace HubbyClient
             client.Start();
             //client.EnableStatistics = true;
 
-            var data = Encoding.UTF8.GetBytes("TEST");
-            client.SendToAll(data, DeliveryMethod.ReliableUnordered);
+            // Connect to the gateway.
+            client.Connect(gateway, gatewayPort, ConnectionKey);
 
             // Send our LAN/WAN IP and port to the gateway.
             client.NatPunchModule.SendNatIntroduceRequest(gateway, gatewayPort, "token1");
+
+            //var data = Encoding.UTF8.GetBytes("TEST");
+            //client.SendToAll(data, DeliveryMethod.ReliableUnordered);
 
             while (true)
             {
                 DateTime nowTime = DateTime.UtcNow;
 
-                client.NatPunchModule.PollEvents();
                 client.PollEvents();
+                client.NatPunchModule.PollEvents();
 
                 //Console.WriteLine(client.Statistics);
 
-                Thread.Sleep(10);
+                Thread.Sleep(100);
             }
 
             client.Stop();

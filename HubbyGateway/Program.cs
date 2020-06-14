@@ -10,9 +10,6 @@ namespace HubbyGateway
 
             HubbyGatewayManager manager = new HubbyGatewayManager();
             manager.Run();
-
-            Console.WriteLine("Press ENTER to exit.");
-            Console.ReadLine();
         }
     }
 }
